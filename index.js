@@ -54,8 +54,33 @@ let stockNotificationsEnabled = true; // toggle for stock notifications
 let errorNotificationsEnabled = true; // toggle for error/SKU problem notifications
 
 // Function to format time
-const ago = (date) =>
-  date ? `${Math.round((Date.now() - date) / 1000)} sec ago` : "never";
+const ago = (date) => {
+  if (!date) return "never";
+
+  const diffMs = Date.now() - date.getTime();
+  const diffSeconds = Math.floor(diffMs / 1000);
+
+  if (diffSeconds < 60) {
+    return `${diffSeconds} sec${diffSeconds !== 1 ? "s" : ""} ago`;
+  }
+
+  const diffMinutes = Math.floor(diffSeconds / 60);
+  const diffHours = Math.floor(diffMinutes / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  const seconds = diffSeconds % 60;
+  const minutes = diffMinutes % 60;
+  const hours = diffHours % 24;
+
+  const parts = [];
+  if (diffDays > 0) parts.push(`${diffDays} day${diffDays !== 1 ? "s" : ""}`);
+  if (hours > 0) parts.push(`${hours} hour${hours !== 1 ? "s" : ""}`);
+  if (minutes > 0) parts.push(`${minutes} min${minutes !== 1 ? "s" : ""}`);
+  if (seconds > 0 || parts.length === 0)
+    parts.push(`${seconds} sec${seconds !== 1 ? "s" : ""}`);
+
+  return parts.join(", ") + " ago";
+};
 
 // Commands
 bot.start((ctx) =>
@@ -239,14 +264,20 @@ async function startMonitoring() {
   let currentIndex = 0;
 
   while (true) {
-    const sku = SKU_LIST[currentIndex];
-    await checkSkuAndProcess(sku);
+    try {
+      const sku = SKU_LIST[currentIndex];
+      await checkSkuAndProcess(sku);
 
-    // Move to next SKU (cycle back to first after last)
-    currentIndex = (currentIndex + 1) % SKU_LIST.length;
+      // Move to next SKU (cycle back to first after last)
+      currentIndex = (currentIndex + 1) % SKU_LIST.length;
 
-    // Wait CHECK_INTERVAL_SEC before next request
-    await new Promise((resolve) => setTimeout(resolve, CHECK_INTERVAL));
+      // Wait CHECK_INTERVAL_SEC before next request
+      await new Promise((resolve) => setTimeout(resolve, CHECK_INTERVAL));
+    } catch (err) {
+      console.error("Error in monitoring loop:", err.message);
+      // Wait before retrying to avoid rapid error loops
+      await new Promise((resolve) => setTimeout(resolve, CHECK_INTERVAL));
+    }
   }
 }
 
@@ -255,9 +286,12 @@ startMonitoring();
 
 // === Web server for Render (to keep service alive) ===
 const app = express();
-app.get("/", (req, res) =>
-  res.send("NVIDIA FE monitor alive | /status /stock")
-);
+app.get("/", (req, res) => {
+  const uptime = ago(serverStartTime);
+  res.send(
+    `FE hunt has already begun\nUptime: ${uptime}\nCommands: /status /toggle_stock /toggle_errors`
+  );
+});
 app.listen(process.env.PORT || 3000, () => {
   console.log("Web server running");
 });
