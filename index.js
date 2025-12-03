@@ -189,6 +189,10 @@ function createLogEntry(status, error = null, price = null) {
 // Helper function to check SKU availability
 async function checkSku(sku) {
   const url = `${API_BASE_URL}?skus=${sku}&locale=${LOCALE}`;
+  const startedAt = new Date();
+  console.log(
+    `[CHECK] ${startedAt.toISOString()} | SKU=${sku} | locale=${LOCALE} | URL=${url}`
+  );
 
   try {
     const res = await axios.get(url, {
@@ -196,14 +200,23 @@ async function checkSku(sku) {
       headers: HTTP_HEADERS,
     });
 
+    const finishedAt = new Date();
+    const durationMs = finishedAt.getTime() - startedAt.getTime();
+
     if (!res.data?.success) {
-      lastLogs[sku] = createLogEntry("error", "API returned success: false");
-      console.error(`Error checking ${sku}: API returned success: false`);
+      const msg = "API returned success: false";
+      lastLogs[sku] = createLogEntry("error", msg);
+      console.error(
+        `[CHECK-ERROR] ${finishedAt.toISOString()} | SKU=${sku} | locale=${LOCALE} | duration=${durationMs}ms | ${msg}`
+      );
       return null;
     }
 
     if (res.data.listMap === null) {
       lastLogs[sku] = createLogEntry("not_found");
+      console.warn(
+        `[CHECK-NOT-FOUND] ${finishedAt.toISOString()} | SKU=${sku} | locale=${LOCALE} | duration=${durationMs}ms | listMap=null`
+      );
       if (errorNotificationsEnabled) {
         await sendMessage(
           `⚠️ *SKU not found*\n*${escapeMarkdown(
@@ -219,7 +232,9 @@ async function checkSku(sku) {
     if (!Array.isArray(res.data.listMap) || res.data.listMap.length === 0) {
       const errorMsg = "listMap is empty or not an array";
       lastLogs[sku] = createLogEntry("error", errorMsg);
-      console.error(`Error checking ${sku}: ${errorMsg}`);
+      console.error(
+        `[CHECK-ERROR] ${finishedAt.toISOString()} | SKU=${sku} | locale=${LOCALE} | duration=${durationMs}ms | ${errorMsg}`
+      );
       if (errorNotificationsEnabled) {
         await sendMessage(
           `⚠️ *SKU check error*\n*${escapeMarkdown(
@@ -232,11 +247,22 @@ async function checkSku(sku) {
       return null;
     }
 
-    return res.data.listMap[0];
+    const item = res.data.listMap[0];
+    const isAvailable = item.is_active === "true";
+    console.log(
+      `[CHECK-OK] ${finishedAt.toISOString()} | SKU=${sku} | locale=${LOCALE} | duration=${durationMs}ms | status=${
+        isAvailable ? "available" : "unavailable"
+      } | price=${item.price}`
+    );
+
+    return item;
   } catch (err) {
+    const finishedAt = new Date();
     const errorMsg = err.message || "Unknown error";
     lastLogs[sku] = createLogEntry("error", errorMsg);
-    console.error(`Error checking ${sku}:`, errorMsg);
+    console.error(
+      `[CHECK-EXCEPTION] ${finishedAt.toISOString()} | SKU=${sku} | locale=${LOCALE} | error=${errorMsg}`
+    );
     return null;
   }
 }
